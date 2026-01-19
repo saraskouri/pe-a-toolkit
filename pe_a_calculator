@@ -1,0 +1,231 @@
+"""
+P-E-A CALCULATOR - Canonical Version
+Implements the Master Lexicon v1.0 formulas.
+Author: Sara Skouri
+"""
+
+import numpy as np
+import pandas as pd
+from typing import Dict, Any, Optional
+
+class PEACalculator:
+    """
+    The official calculator for Perceived Exaggerated Amplification (P-E-A).
+    
+    This implements the exact formulas from:
+    "Social Physics: Master Lexicon v1.0" by Sara Skouri (2026)
+    """
+    
+    def __init__(self, gamma: float = 1.0, delta1: float = 1.0, delta2: float = 0.5):
+        """
+        Initialize with sensitivity parameters.
+        
+        Parameters
+        ----------
+        gamma : float
+            Bot/coordination sensitivity (default: 1.0)
+        delta1 : float
+            Directional bias sensitivity (default: 1.0)
+        delta2 : float
+            Diversity loss sensitivity (default: 0.5)
+        """
+        self.gamma = gamma
+        self.delta1 = delta1
+        self.delta2 = delta2
+        self.components = {}
+        self.score = None
+    
+    def calculate_from_ratios(self, A_p: float, A_e: float, A_b: float, A_s: float) -> float:
+        """
+        QUICK METHOD: Use pre-calculated component ratios.
+        Good for testing or when you already have the ratios.
+        
+        Parameters
+        ----------
+        A_p, A_e, A_b, A_s : float
+            The four amplification components as ratios.
+            
+        Returns
+        -------
+        float
+            The P-E-A score.
+        """
+        self.components = {
+            'A_p': A_p,
+            'A_e': A_e, 
+            'A_b': A_b,
+            'A_s': A_s
+        }
+        
+        # THE OFFICIAL FORMULA: Root Mean Square
+        sum_of_squares = (A_p ** 2) + (A_e ** 2) + (A_b ** 2) + (A_s ** 2)
+        self.score = np.sqrt(sum_of_squares / 4)
+        return self.score
+    
+    def calculate_from_data(self, feed_data: Dict, baseline_data: Dict) -> float:
+        """
+        MAIN METHOD: Calculate P-E-A from raw data using Master Lexicon formulas.
+        
+        Parameters
+        ----------
+        feed_data : dict
+            Measurements from the platform/feed. Must contain:
+            - 'prevalence' (share of impressions, 0-1)
+            - 'emotion' (average emotional intensity, 0-1)
+            - 'bot_activity' (bot coordination score, >=0)
+            - 'slant_mean' (mean ideological position, -1 to +1)
+            - 'slant_std' (diversity of positions, >0)
+            
+        baseline_data : dict
+            Reference/baseline measurements. Same keys as feed_data.
+            
+        Returns
+        -------
+        float
+            The canonical P-E-A score.
+        """
+        # 1. PREVALENCE AMPLIFICATION (A_p)
+        p_feed = feed_data.get('prevalence', 0)
+        p_base = baseline_data.get('prevalence', 1)
+        A_p = p_feed / p_base if p_base > 0 else 1.0
+        
+        # 2. EMOTIONAL AMPLIFICATION (A_e)
+        e_feed = feed_data.get('emotion', 0)
+        e_base = baseline_data.get('emotion', 1)
+        A_e = e_feed / e_base if e_base > 0 else 1.0
+        
+        # 3. BOT AMPLIFICATION (A_b) - Master Lexicon Eq.
+        b_feed = feed_data.get('bot_activity', 0)
+        b_base = baseline_data.get('bot_activity', 1)
+        A_b = 1 + self.gamma * (b_feed / b_base if b_base > 0 else 0)
+        
+        # 4. BIAS SKEW AMPLIFICATION (A_s) - Master Lexicon Eq.
+        mu_feed = feed_data.get('slant_mean', 0)
+        mu_base = baseline_data.get('slant_mean', 0)
+        sigma_feed = feed_data.get('slant_std', 1)
+        sigma_base = baseline_data.get('slant_std', 1)
+        
+        directional_skew = abs(mu_feed - mu_base)
+        diversity_loss = max(0, sigma_base - sigma_feed)
+        A_s = 1 + (self.delta1 * directional_skew) + (self.delta2 * diversity_loss)
+        
+        # Store all components
+        self.components = {
+            'A_p': A_p,
+            'A_e': A_e,
+            'A_b': A_b,
+            'A_s': A_s,
+            'parameters': {
+                'gamma': self.gamma,
+                'delta1': self.delta1,
+                'delta2': self.delta2
+            }
+        }
+        
+        # Calculate final P-E-A score
+        return self.calculate_from_ratios(A_p, A_e, A_b, A_s)
+    
+    def interpret(self) -> Dict[str, Any]:
+        """
+        Interpret the score according to Social Physics thresholds.
+        
+        Returns
+        -------
+        dict
+            Interpretation with level, meaning, and recommendation.
+        """
+        if self.score is None:
+            return {"error": "No score calculated yet. Run calculate() first."}
+        
+        if self.score < 1.2:
+            level = "LOW"
+            meaning = "Perceptual integrity maintained. System stable."
+            color = "🟢"
+        elif self.score < 1.7:
+            level = "MODERATE"
+            meaning = "Monitor for escalation. Some distortion present."
+            color = "🟡"
+        elif self.score < 2.3:
+            level = "HIGH"
+            meaning = "Risk of Social Fission. Corrective measures needed."
+            color = "🟠"
+        else:
+            level = "CRITICAL"
+            meaning = "Social Fission imminent. Immediate intervention required."
+            color = "🔴"
+        
+        return {
+            'score': round(self.score, 3),
+            'level': level,
+            'meaning': meaning,
+            'color': color,
+            'components': self.components
+        }
+    
+    def summary(self) -> str:
+        """Return a clean text summary of the analysis."""
+        result = self.interpret()
+        if 'error' in result:
+            return result['error']
+        
+        output = [
+            "=" * 50,
+            "P-E-A ANALYSIS SUMMARY",
+            "=" * 50,
+            f"SCORE: {result['score']} {result['color']}",
+            f"LEVEL: {result['level']}",
+            f"MEANING: {result['meaning']}",
+            "",
+            "COMPONENTS:",
+            f"  A_p (Prevalence): {self.components['A_p']:.3f}",
+            f"  A_e (Emotion):    {self.components['A_e']:.3f}",
+            f"  A_b (Bots):       {self.components['A_b']:.3f}",
+            f"  A_s (Bias):       {self.components['A_s']:.3f}",
+            "=" * 50
+        ]
+        
+        return "\n".join(output)
+
+# ============================================================================
+# SIMPLE EXAMPLE USAGE
+# ============================================================================
+
+def simple_example():
+    """Show how to use the calculator in 3 lines."""
+    print("🔬 SIMPLE P-E-A CALCULATION EXAMPLE")
+    print("-" * 40)
+    
+    # Example 1: Using ratios (quick test)
+    print("\n1. Quick test with ratios:")
+    calculator = PEACalculator()
+    score = calculator.calculate_from_ratios(A_p=1.1, A_e=1.0, A_b=1.0, A_s=1.0)
+    print(f"   Score: {score:.3f}")
+    print(calculator.summary())
+    
+    # Example 2: Using real data (canonical method)
+    print("\n2. Real calculation from data:")
+    
+    # What we see on the platform
+    feed_data = {
+        'prevalence': 0.25,    # 25% of feed is about topic X
+        'emotion': 0.8,        # High emotional content (0.8/1.0)
+        'bot_activity': 2.5,   # High bot activity
+        'slant_mean': 0.9,     # Heavily skewed positive
+        'slant_std': 0.1       # Very little diversity
+    }
+    
+    # What's normal/reference
+    baseline_data = {
+        'prevalence': 0.05,    # Normally 5% coverage
+        'emotion': 0.3,        # Normally calm
+        'bot_activity': 0.1,   # Normal low bot level
+        'slant_mean': 0.0,     # Neutral baseline
+        'slant_std': 0.7       # Normally diverse views
+    }
+    
+    calculator2 = PEACalculator(gamma=1.0, delta1=1.0, delta2=0.5)
+    score2 = calculator2.calculate_from_data(feed_data, baseline_data)
+    print(calculator2.summary())
+
+if __name__ == "__main__":
+    simple_example()
